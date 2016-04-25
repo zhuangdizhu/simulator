@@ -18,14 +18,17 @@ from enum import Enum
 from mysql.connector import MySQLConnection,Error
 from python_mysql_dbconfig import read_db_config
 global local_open, remote_open, local_close, remote_close, CHUNK_SIZE
+
 local_open = 1340/(10**6)
 remote_open = 2110/(10**6)
 local_close = 600/(10**6)
 remote_close = 900/(10**6)
 CHUNK_SIZE = 4 #4M Bytes, i.e 1024 *4 Kbyte
 
-global i
-i = 0
+
+#global i
+#i = 0
+
 AccType = namedtuple('AccType',['acc_id', 'acc_name', 'acc_peak_bw', 'if_flow_intensive', 'acc_configuration_time'])
 EventType = Enum('EventType','JOB_ARRIVAL JOB_BEGIN JOB_START JOB_FINISH JOB_COMPLETE JOB_END')
 SchedulingAlgorithm = Enum('SchedulingAlgorithm','SJF FIFO Queue Choosy Choosy1 Double')
@@ -131,8 +134,6 @@ class FpgaSimulator(object):
         self.fpga_job_list =dict()#indexed by job_id
         self.fpga_section_list =dict()#indexd by section_id
         self.node_list = dict()#indexed by node_ip
-        self.fpga_node_list = dict()#indexed by node_ip, value is the num of waiting jobs
-        self.node_waiting_remote_job = dict()#indexed by node_ip, value is the num of waiting remote jobs
         self.network_topology = list()
         self.current_time = 0
         self.current_event_id = 0
@@ -324,9 +325,7 @@ class FpgaSimulator(object):
             cursor.execute(query)
             accs = cursor.fetchall()
             for acc in accs:
-                acc_peak_bw = float(acc[2])*1000  # M bytes
-                #acc_peak_bw = 4
-                #print acc_peak_bw
+                acc_peak_bw = float(acc[2])  # MBytes
                 self.acc_type_list[acc[0]] = AccType(acc[0], acc[1], acc_peak_bw, acc[3], 0)
         except Error as e:
             print(e)
@@ -344,26 +343,21 @@ class FpgaSimulator(object):
             nodes = cursor.fetchall()
             #print('Total fpga_node(s):', cursor.rowcount)
             for node in nodes:
-                node_id = int(node[0])
+                node_id = int(node[0])-1        #starts from 0
                 node_ip = node[1]
-                pcie_bw = float(node[2])    #M bytes
-                #pcie_bw = 4
+                pcie_bw = float(node[2])        #M bytes
                 if_fpga_available = int(node[3])
-                if (if_fpga_available == 1):
-                    self.fpga_node_list[node_ip] = list()
-                    self.node_waiting_remote_job[node_ip] = 0
                 section_num = int(node[4])
-                roce_bw = float(node[5])*1024 # M bytes
-                #roce_bw = 4
-                roce_latency = float(node[6])/(10**6) #secs
+                roce_bw = float(node[5])        # M bytes
+                roce_latency = float(node[6])   #secs
                 self.node_list[node_ip] = PowerNode(node_id, node_ip, if_fpga_available, section_num, pcie_bw, roce_bw, roce_latency)
-                if node[3] == 1:
+
+                if if_fpga_available == 1:
                     for i in range(section_num):
                         #print i
                         section_id = node_ip+":section"+str(i)
                         #print section_id
                         self.node_list[node_ip].section_id_list.append(section_id)
-
 
         except Error as e:
             print(e)
@@ -409,7 +403,7 @@ class FpgaSimulator(object):
             cursor.execute(query)
             job_list = cursor.fetchall()
             for i, job in enumerate(job_list):
-                job_id = i+1
+                job_id = i  #starts from 1
                 in_buf_size = float(job[1]) #M bytes
                 acc_id = job[3]
                 arrival_time = float(job[4]) #secs
@@ -435,7 +429,7 @@ class FpgaSimulator(object):
     #        cursor.close()
 
 
-    def initiate_event(self):
+    def initiate_events(self):
         #for job_id,job in self.fpga_job_list.items():
         for i in range(len(self.fpga_job_list)):
             job_id = sorted(self.fpga_job_list.iterkeys())[i]
@@ -1431,7 +1425,7 @@ class FpgaSimulator(object):
         self.initiate_network_topology()
         self.initiate_fpga_resources()
         self.initiate_job_status()
-        self.initiate_event()
+        self.initiate_events()
 
     def simulation_input(self):
         print 'simulation is ready ...'
