@@ -19,10 +19,10 @@ from mysql.connector import MySQLConnection,Error
 from python_mysql_dbconfig import read_db_config
 global local_open, remote_open, local_close, remote_close, CHUNK_SIZE
 
-local_open = 1340/(10**6)
-remote_open = 2110/(10**6)
-local_close = 600/(10**6)
-remote_close = 900/(10**6)
+local_open = 1340/(10**6)       #seconds
+remote_open = 2110/(10**6)      #seconds
+local_close = 600/(10**6)       #seconds
+remote_close = 900/(10**6)      #seconds
 CHUNK_SIZE = 4 #4M Bytes, i.e 1024 *4 Kbyte
 
 
@@ -31,7 +31,7 @@ CHUNK_SIZE = 4 #4M Bytes, i.e 1024 *4 Kbyte
 
 AccType = namedtuple('AccType',['acc_id', 'acc_name', 'acc_peak_bw', 'if_flow_intensive', 'acc_configuration_time'])
 EventType = Enum('EventType','JOB_ARRIVAL JOB_BEGIN JOB_START JOB_FINISH JOB_COMPLETE JOB_END')
-SchedulingAlgorithm = Enum('SchedulingAlgorithm','SJF FIFO Queue Choosy Choosy1 Double')
+SchedulingAlgorithm = Enum('SchedulingAlgorithm','SJF FIFO Queue Choosy Choosy1 Double Double1')
 class FpgaEvent(object):
     def __init__(self, event_id, event_type, event_time='', job_id='', section_id=''):
         self.event_type = event_type
@@ -127,7 +127,7 @@ class FpgaSimulator(object):
         #self.wait_ratio = WaitRatio
         self.event_sequence = defaultdict(list)
         self.waiting_job_list=list()#the first element in the waiting_job_list must have wait the longest time
-        self.sjf_job_list=dict()
+        self.sjf_job_list=dict() #job_id: theory_job_execution_time
         self.priority_queue = defaultdict(list)
         self.event_list = dict()#indexed by event_id
         self.acc_type_list = dict()#indexed by acc_id
@@ -465,9 +465,8 @@ class FpgaSimulator(object):
 
 
     def conduct_fifo_scheduling(self):
-        return_job_id = None
-        return_section_id = None
         if self.current_event_type == EventType.JOB_ARRIVAL:
+            return_section_id = None
             job_id = self.current_job_id
             job_node_ip = self.fpga_job_list[job_id].node_ip
             node_ip = self.pick_idle_node()
@@ -476,6 +475,7 @@ class FpgaSimulator(object):
             return return_section_id
 
         elif self.current_event_type == EventType.JOB_END:
+            return_job_id = None
             if len(self.waiting_job_list):
                 section_id = self.fpga_job_list[self.current_job_id].section_id
                 section_node_ip = self.fpga_section_list[section_id].node_ip
@@ -507,31 +507,19 @@ class FpgaSimulator(object):
 
 
     def conduct_double_scheduling(self):
-        return_job_id = None
-        return_section_id = None
-
         if self.current_event_type == EventType.JOB_ARRIVAL:
-            job_id = self.current_job_id
-            job_node_ip = self.fpga_job_list[job_id].node_ip
-
-            if self.node_list[job_node_ip].if_fpga_available == True:
-                return_section_id = self.pick_idle_section(job_node_ip)
-                return return_section_id
-
-            node_ip = self.pick_idle_node()
-            if node_ip != None:
-                section_id = self.pick_idle_section(node_ip)
-                return_section_id = section_id
-            return return_section_id
+            return self.conduct_choosy_scheduling()
 
         elif self.current_event_type == EventType.JOB_END:
+            return_job_id = None
             if len(self.waiting_job_list):
                 section_id = self.fpga_job_list[self.current_job_id].section_id
                 section_node_ip = self.fpga_section_list[section_id].node_ip
-                other_queue = list()
+                less_optimal_jobs = list()
+
                 queue_id_list = sorted(self.priority_queue.iterkeys())
                 for queue_id in queue_id_list:
-                    if len(self.priority_queue[queue_id]) != 0:
+                    if len(self.priority_queue[queue_id]):
                         for job_id in self.priority_queue[queue_id]:
                             job_node_ip = self.fpga_job_list[job_id].node_ip
                             if job_node_ip == section_node_ip or self.node_list[job_node_ip].if_fpga_available == False:
@@ -540,14 +528,50 @@ class FpgaSimulator(object):
                                 return return_job_id
 
                             else:
-                                other_queue.append(job_id)
+                                less_optimal_jobs.append(job_id)
 
-                if len(other_queue):
-                    return_job_id =  other_queue[0]
+                if len(less_optimal_jobs):
+                    return_job_id =  less_optimal_jobs[0]
                     self.remove_job_from_queue(return_job_id)
                     return return_job_id
 
             return return_job_id
+
+    def conduct_double1_scheduling(self):
+        if self.current_event_type == EventType.JOB_ARRIVAL:
+            return self.conduct_choosy1_scheduling()
+
+        elif self.current_event_type == EventType.JOB_END:
+            return_job_id = None
+            if len(self.waiting_job_list):
+                section_id = self.fpga_job_list[self.current_job_id].section_id
+                section_node_ip = self.fpga_section_list[section_id].node_ip
+                less_optimal_jobs = list()
+
+                queue_id_list = sorted(self.priority_queue.iterkeys())
+                for queue_id in queue_id_list:
+                    if len(self.priority_queue[queue_id]):
+                        for job_id in self.priority_queue[queue_id]:
+                            job_node_ip = self.fpga_job_list[job_id].node_ip
+                            if job_node_ip == section_node_ip or self.node_list[job_node_ip].if_fpga_available == False:
+                                return_job_id = job_id
+                                self.remove_job_from_queue(return_job_id)
+                                return return_job_id
+                            else:
+                                if self.if_wait_long_time(job_id) == True:
+                                    return_job_id =  job_id
+                                    self.remove_job_from_queue(return_job_id)
+                                    return return_job_id
+                                else:
+                                    self.fpga_job_list[job_id].job_skipped += 1
+                                    less_optimal_jobs.append(job_id)
+
+                if len(less_optimal_jobs):
+                    return_job_id =  less_optimal_jobs[0]
+                    self.remove_job_from_queue(return_job_id)
+
+            return return_job_id
+
 
     def if_wait_long_time(self, job_id):
         weight = 0.1
@@ -570,14 +594,15 @@ class FpgaSimulator(object):
 
 
     def conduct_choosy1_scheduling(self):
-        return_job_id = None
-        return_section_id = None
+        secPattern = "loose"
+        timPattern = "strict"
         if self.current_event_type == EventType.JOB_ARRIVAL:
+            return_section_id = None
             job_id = self.current_job_id
             job_node_ip = self.fpga_job_list[job_id].node_ip
 
             if self.node_list[job_node_ip].if_fpga_available == True:
-                return_section_id = self.pick_idle_section(job_node_ip, "strict")
+                return_section_id = self.pick_idle_section(job_node_ip, secPattern)
                 if return_section_id != None:
                     return return_section_id
 
@@ -585,39 +610,40 @@ class FpgaSimulator(object):
 
             if node_ip != None:
                 #print node_ip
-                section_id = self.pick_idle_section(node_ip, "strict")
+                section_id = self.pick_idle_section(node_ip, secPattern)
                 return_section_id = section_id
             return return_section_id
 
         elif self.current_event_type == EventType.JOB_END:
-            if len(self.waiting_job_list):
-                section_id = self.fpga_job_list[self.current_job_id].section_id
-                section_node_ip = self.fpga_section_list[section_id].node_ip
+            return_job_id = None
+            if timPattern == "loose":
+                return self.conduct_choosy_scheduling()
+            else:
+                if len(self.waiting_job_list):
+                    section_id = self.fpga_job_list[self.current_job_id].section_id
+                    section_node_ip = self.fpga_section_list[section_id].node_ip
 
-                #priority_queue=defaultdict(list)
-                priority_queue=list()
-                for job_id in self.waiting_job_list:
-                    job_node_ip = self.fpga_job_list[job_id].node_ip
-                    if job_node_ip == section_node_ip or self.node_list[job_node_ip].if_fpga_available == False:
-                        return_job_id = job_id
-                        self.remove_job_from_queue(return_job_id)
-                        return return_job_id
-
-                    else:
-                        if self.if_wait_long_time(job_id) == True:
-                            return_job_id =  job_id
+                    for job_id in self.waiting_job_list:
+                        job_node_ip = self.fpga_job_list[job_id].node_ip
+                        if job_node_ip == section_node_ip or self.node_list[job_node_ip].if_fpga_available == False:
+                            return_job_id = job_id
                             self.remove_job_from_queue(return_job_id)
                             return return_job_id
-                        else:
-                            self.fpga_job_list[job_id].job_skipped += 1
 
-                return None
+                        else:
+                            if self.if_wait_long_time(job_id) == True:
+                                return_job_id =  job_id
+                                self.remove_job_from_queue(return_job_id)
+                                return return_job_id
+                            else:
+                                self.fpga_job_list[job_id].job_skipped += 1
+                return return_job_id;
+
 
 
     def conduct_choosy_scheduling(self):
-        return_job_id = None
-        return_section_id = None
         if self.current_event_type == EventType.JOB_ARRIVAL:
+            return_section_id = None
             job_id = self.current_job_id
             job_node_ip = self.fpga_job_list[job_id].node_ip
 
@@ -635,12 +661,11 @@ class FpgaSimulator(object):
             return return_section_id
 
         elif self.current_event_type == EventType.JOB_END:
+            return_job_id = None
             if len(self.waiting_job_list):
                 section_id = self.fpga_job_list[self.current_job_id].section_id
                 section_node_ip = self.fpga_section_list[section_id].node_ip
 
-                #priority_queue=defaultdict(list)
-                priority_queue=list()
                 for job_id in self.waiting_job_list:
                     job_node_ip = self.fpga_job_list[job_id].node_ip
                     if job_node_ip == section_node_ip or self.node_list[job_node_ip].if_fpga_available == False:
@@ -650,7 +675,7 @@ class FpgaSimulator(object):
 
                 return_job_id = self.waiting_job_list[0]
                 self.remove_job_from_queue(return_job_id)
-                return return_job_id
+            return return_job_id
 
 
     def pick_idle_node(self):
@@ -705,13 +730,13 @@ class FpgaSimulator(object):
                     return sec_id
             return None
         else:
+            print pattern
             return self.pick_strict_idle_section(node_ip)
 
 
     def conduct_queue_scheduling(self):
-        return_job_id = None
-        return_section_id = None
         if self.current_event_type == EventType.JOB_ARRIVAL:
+            return_section_id = None
             job_id = self.current_job_id
             job_node_ip = self.fpga_job_list[job_id].node_ip
             node_ip = self.pick_idle_node()
@@ -720,6 +745,7 @@ class FpgaSimulator(object):
             return return_section_id
 
         elif self.current_event_type == EventType.JOB_END:
+            return_job_id = None
             if len(self.waiting_job_list):
                 section_id = self.fpga_job_list[self.current_job_id].section_id
                 section_node_ip = self.fpga_section_list[section_id].node_ip
@@ -734,9 +760,8 @@ class FpgaSimulator(object):
 
 
     def conduct_sjf_scheduling(self):
-        return_job_id = None
-        return_section_id = None
         if self.current_event_type == EventType.JOB_ARRIVAL:
+            return_section_id = None
             job_id = self.current_job_id
             job_node_ip = self.fpga_job_list[job_id].node_ip
             node_ip = self.pick_idle_node()
@@ -745,6 +770,7 @@ class FpgaSimulator(object):
             return return_section_id
 
         elif self.current_event_type == EventType.JOB_END:
+            return_job_id = None
             remote_job_list = dict()
             local_job_list = dict()# <job_id: execution_time>
             other_job_list = dict()
@@ -756,44 +782,7 @@ class FpgaSimulator(object):
                 sorted_list = sorted(self.sjf_job_list.items(), lambda x,y: cmp(x[1],y[1]))
                 return_job_id =  sorted_list[0][0]
                 self.remove_job_from_queue(return_job_id)
-                return return_job_id
-
-                #for job_id in self.waiting_job_list:
-                #    job_node_ip = self.fpga_job_list[job_id].node_ip
-                #    if job_node_ip == section_node_ip:
-                #        local_job_list[job_id] =
-                #        self.fpga_job_list[job_id].theory_job_execution_time
-
-                #    elif self.node_list[job_node_ip].if_fpga_available == False:
-                #        remote_job_list[job_id] =
-                #        self.fpga_job_list[job_id].theory_job_execution_time
-
-                #    else:
-                #        other_job_list[job_id] =
-                #        self.fpga_job_list[job_id].theory_job_execution_time
-
-                #if len(local_job_list):
-                #    sorted_list = sorted(local_job_list.items(), lambda x,y: cmp(x[1], y[1]))
-                #    return_job_id = sorted_list[0][0]
-                #    self.waiting_job_list.remove(return_job_id)
-                #    return return_job_id
-
-                #if len(remote_job_list):
-                #    sorted_list = sorted(remote_job_list.items(), lambda x,y: cmp(x[1], y[1]))
-                #    return_job_id = sorted_list[0][0]
-                #    self.waiting_job_list.remove(return_job_id)
-                #    return return_job_id
-
-                #if len(other_job_list):
-                #    sorted_list = sorted(other_job_list.items(), lambda x,y: cmp(x[1], y[1]))
-                #    return_job_id = sorted_list[0][0]
-                #    self.waiting_job_list.remove(return_job_id)
-                #    return return_job_id
-
-                #return return_job_id
-
-            else:
-                return return_job_id
+            return return_job_id
 
 
 
@@ -816,6 +805,9 @@ class FpgaSimulator(object):
 
         elif self.scheduling_algorithm == SchedulingAlgorithm.Double:
             return_id = self.conduct_double_scheduling()
+
+        elif self.scheduling_algorithm == SchedulingAlgorithm.Double1:
+            return_id = self.conduct_double1_scheduling()
 
         return return_id
 
@@ -1064,45 +1056,28 @@ class FpgaSimulator(object):
         elif self.scheduling_algorithm == SchedulingAlgorithm.Choosy:
             return
 
-    def print_queue(self):
-        max_queue_num = 50
-        return
-
     def get_queue_id(self, job_id):
         k1 = self.k1 #MB
         k2 = self.k2
         middleNum = self.middleNum
 
-        base = 2
+        Q = 2
         E = 1
-        max_queue_num = 50
+        K = 50
 
         job_size = self.fpga_job_list[job_id].real_in_buf_size
 
-        if E * (base ** k1) > job_size:
-            queue_id = int(math.ceil(math.log(job_size/E,base)))
+        if E * (Q ** k1) > job_size:
+            queue_id = int(math.ceil(math.log(job_size/E,Q)))
 
-        elif job_size >= E * (base ** k2):
-            queue_id = k1 + middleNum + int(math.ceil(math.log( job_size/ (E*(base**k2)) ) ))
+        elif job_size >= E * (Q ** k2):
+            queue_id = k1 + middleNum + int(math.ceil(math.log( job_size/ (E*(Q**k2)) ) ))
 
         else:
-            middleQueueSize = E*(base**k2 - base**k1)/middleNum
-            queue_id = int (k1 + math.ceil( (job_size - E*(base**k1))/middleQueueSize) )
+            middleQueueSize = E*(Q**k2 - Q**k1)/middleNum
+            queue_id = int (k1 + math.ceil( (job_size - E*(Q**k1))/middleQueueSize) )
 
-        return self.smaller(queue_id, max_queue_num)
-
-    #def get_queue_id(self, job_id):
-    #    E = self.E #MB
-    #    k = self.k
-    #    base = 2
-    #    max_queue_num = 50
-    #    job_size = self.fpga_job_list[job_id].real_in_buf_size
-    #    if E * (base ** k) > job_size:
-    #        queue_id = int(math.ceil(math.log(job_size/E,base)))
-    #    else:
-    #        queue_id = k + int(math.floor(job_size/(E*(base**k))))
-
-    #    return self.smaller(queue_id, max_queue_num)
+        return min(queue_id, K)
 
     def handle_job_arrival(self):
         job_id = self.current_job_id
@@ -1473,7 +1448,6 @@ class FpgaSimulator(object):
         system_avg_performance_ratio = list()
         system_avg_response_time = list()
         for job_id, job in self.fpga_job_list.items():
-            ##self.get_job_metrics(job_id)
 
             ##print '[job%r]  on_node %r...' %(job.job_id, job.section_id)
             #response_time = 0
@@ -1523,11 +1497,11 @@ class FpgaSimulator(object):
         self.snp = np.std(system_avg_performance_ratio, ddof=0)
 
         avg_response_time = np.mean(system_avg_response_time) #avg completion time
-
-        print "[Avg Completion Time]:                               %.0f    milli_secs" %(avg_response_time*1000)
-        #print "[90-99% Percentile Completion Time]:                 %.0f milli_secs" %(tail_response_time*1000)
-        print "[90-99% Percentile Completion Time]:                         milli_secs"
-        print [t*1000 for t in tail_response_time]
+        tail_response_time = [i*1000 for i in tail_response_time]
+        print "[Avg Completion Time]:                           %.0f    milli_secs" %(avg_response_time*1000)
+        print "[90 Percentile Completion Time]:                %.0f    milli_secs" %(tail_response_time[0])
+        #print "[90-99% Percentile Completion Time]:                         milli_secs"
+        #print [t for t in tail_response_time]
         print ""
 
         print "[System Avg Performance(Response Delay)]:        %.5f percentage" % (100*self.sap)
@@ -1591,7 +1565,7 @@ class FpgaSimulator(object):
 
 if __name__ == "__main__":
     if len(sys.argv) != 5:
-        sys.exit('Usage: simulation.py SJF/FIFO/Choosy(1)/Queue/Double K1 K2 MidleNum')
+        sys.exit('Usage: simulation.py SJF/FIFO/Choosy(1)/Queue/Double(1) K1 K2 MidleNum')
         sys.exit(1)
 
     if sys.argv[1] == "SJF":
@@ -1612,9 +1586,11 @@ if __name__ == "__main__":
     elif sys.argv[1] == "Double":
         scheduling_algorithm = SchedulingAlgorithm.Double
 
+    elif sys.argv[1] == "Double1":
+        scheduling_algorithm = SchedulingAlgorithm.Double1
 
     else:
-        sys.exit('Usage: sys.argv[0] SJF/FIFO/Choosy(1)/Queue/Double')
+        sys.exit('Usage: sys.argv[0] SJF/FIFO/Choosy(1)/Queue/Double(1)')
         sys.exit(1)
 
     k1 = int(sys.argv[2])
