@@ -577,7 +577,7 @@ class FpgaSimulator(object):
             job_node_ip = self.fpga_job_list[job_id].node_ip
 
             if self.node_list[job_node_ip].if_fpga_available == True:
-                return_section_id = self.pick_strict_idle_section(job_node_ip)
+                return_section_id = self.pick_idle_section(job_node_ip, "strict")
                 if return_section_id != None:
                     return return_section_id
 
@@ -585,7 +585,7 @@ class FpgaSimulator(object):
 
             if node_ip != None:
                 #print node_ip
-                section_id = self.pick_strict_idle_section(node_ip)
+                section_id = self.pick_idle_section(node_ip, "strict")
                 return_section_id = section_id
             return return_section_id
 
@@ -652,19 +652,33 @@ class FpgaSimulator(object):
                 self.remove_job_from_queue(return_job_id)
                 return return_job_id
 
+
     def pick_idle_node(self):
         idle_node_ip = None
-        c_secs = 0
-        for node_ip, node in self.node_list.items():
-            if node.if_fpga_available == True:
-                idle_secs = 0
-                for sec_id in node.section_id_list:
-                    if self.fpga_section_list[sec_id].if_idle == True:
-                        idle_secs += 1
-                if idle_secs > c_secs:
-                    c_secs = idle_secs
-                    idle_node_ip = node_ip
-        return idle_node_ip
+        if self.scheduling_algorithm == SchedulingAlgorithm.FIFO or self.scheduling_algorithm == SchedulingAlgorithm.SJF:
+            ret_nodes = list()
+            for node_ip, node in self.node_list.items():
+                if node.if_fpga_available == True:
+                    for sec_id in node.section_id_list:
+                        if self.fpga_section_list[sec_id].if_idle == True:
+                            ret_nodes.append(node_ip)
+                            break
+            if len(ret_nodes) > 0:
+               idle_node_ip = random.sample(ret_nodes,1)[0]
+            return idle_node_ip
+
+        else:
+            c_secs = 0
+            for node_ip, node in self.node_list.items():
+                if node.if_fpga_available == True:
+                    idle_secs = 0
+                    for sec_id in node.section_id_list:
+                        if self.fpga_section_list[sec_id].if_idle == True:
+                            idle_secs += 1
+                    if idle_secs > c_secs:
+                        c_secs = idle_secs
+                        idle_node_ip = node_ip
+            return idle_node_ip
 
     def pick_strict_idle_section(self, node_ip):
         idle_section_list = list()
@@ -684,12 +698,14 @@ class FpgaSimulator(object):
             return None
 
 
-    def pick_idle_section(self, node_ip):
-        pcie_bw = self.node_list[node_ip].pcie_bw
-        for sec_id in self.node_list[node_ip].section_id_list:
-            if self.fpga_section_list[sec_id].if_idle == True:
-                return sec_id
-        return None
+    def pick_idle_section(self, node_ip, pattern="loose"):
+        if pattern == "loose":
+            for sec_id in self.node_list[node_ip].section_id_list:
+                if self.fpga_section_list[sec_id].if_idle == True:
+                    return sec_id
+            return None
+        else:
+            return self.pick_strict_idle_section(node_ip)
 
 
     def conduct_queue_scheduling(self):
@@ -1123,7 +1139,8 @@ class FpgaSimulator(object):
             #print "roce_bw =%r" %roce_bw
 
             bw = self.update_bw(job_node_id, section_node_id)#percentage
-            "job[%r] begin bw: %.5f" %(job_id, roce_bw * bw)
+            #print "job[%r] begin bw: %.5f" %(job_id, roce_bw * bw)
+
             self.fpga_job_list[job_id].current_roce_bw = bw #percentage
             self.fpga_job_list[job_id].job_source_transfer_time = in_buf_size/(roce_bw * bw) + roce_latency
             #print"transfer time %r" %(in_buf_size/(roce_bw * bw) + roce_latency)
@@ -1151,6 +1168,7 @@ class FpgaSimulator(object):
 
         if event_type == EventType.JOB_BEGIN or event_type == EventType.JOB_START:
             for c_job_id, c_job in self.fpga_job_list.items():
+                #contain the job itself
                 if c_job.job_begin_time <= self.current_time < c_job.job_start_time or (c_job.job_complete_time <= self.current_time < c_job.job_start_time):
                     destination_node_ip = self.fpga_section_list[c_job.section_id].node_ip
                     if c_job.job_if_local == False:
@@ -1159,6 +1177,7 @@ class FpgaSimulator(object):
 
         elif event_type == EventType.JOB_FINISH or event_type == EventType.JOB_COMPLETE:
             for c_job_id, c_job in self.fpga_job_list.items():
+                #not contain the job itself
                 if c_job.job_finish_time < self.current_time < c_job.job_complete_time:
                     source_node_ip = self.fpga_section_list[c_job.section_id].node_ip
                     if c_job.job_if_local == False:
@@ -1448,54 +1467,41 @@ class FpgaSimulator(object):
         avg_response_time = 0
         trans_ratio = 0
         total_size = 0
-        tail_response_time = 0
-        tail_num = n*0.1
-        tail_list = dict() #id: time
+        tail_response_time = list()
+        tail_percentile = [i for i in range (90,100)]
+        tail_list =  list()
         system_avg_performance_ratio = list()
         system_avg_response_time = list()
         for job_id, job in self.fpga_job_list.items():
-            #self.get_job_metrics(job_id)
+            ##self.get_job_metrics(job_id)
 
-            #print '[job%r]  on_node %r...' %(job.job_id, job.section_id)
-            response_time = 0
+            ##print '[job%r]  on_node %r...' %(job.job_id, job.section_id)
+            #response_time = 0
 
-            wait_time = (10**6) *(job.job_waiting_time)
-            response_time += wait_time
-            #print "[job%r] [OPEN] takes: %.0f micro_secs" %(job.job_id, time)
+            #wait_time = job.job_waiting_time
+            #response_time += wait_time
+            ##print "[job%r] [OPEN] takes: %.0f milli_secs" %(job.job_id, time)
 
-            exe_time = (10**6)*(job.job_complete_time - job.job_begin_time)
-            response_time += exe_time
-            #print "[job%r] [EXE] takes %.0f micro_secs" %(job.job_id, time)
+            #exe_time = job.job_complete_time - job.job_begin_time
+            #response_time += exe_time
+            ##print "[job%r] [EXE] takes %.0f milli_secs" %(job.job_id, time)
 
-            close_time = (10**6)*(job.job_end_time - job.job_complete_time)
-            response_time += close_time
-            #print "[job%r] [CLOSE] takes %.0f micro_secs" %(job.job_id, time)
+            #close_time = job.job_end_time - job.job_complete_time
+            #response_time += close_time
+            ##print "[job%r] [CLOSE] takes %.0f milli_secs" %(job.job_id, time)
 
-            #print "[job%r] [TRANS] takes %.2f micro_secs" %(job.job_id, time)
+            ##print "[job%r] [TRANS] takes %.2f milli_secs" %(job.job_id, time)
+
+            response_time = job.job_end_time - job.job_arrival_time
 
             self.fpga_job_list[job_id].job_response_time = response_time
 
             if job.job_if_local == False:
                 trans_ratio += job.real_in_buf_size
-                roce_bw = self.node_list[job.node_ip].roce_bw
-                theory_trans_time = job.real_in_buf_size*2/roce_bw
-                response_ratio = (10**6)*(theory_trans_time + job.theory_job_execution_time)/response_time
 
-            else:
-                response_ratio = (10**6)*job.theory_job_execution_time/response_time
+            response_ratio = (job.job_end_time - job.job_begin_time)/response_time
 
-            if len(tail_list) < tail_num:
-                tail_list[job_id] = job.job_end_time
-
-
-
-            else:
-                sorted_list = sorted(tail_list.iteritems(), lambda x,y: cmp(x[1], y[1]))
-                small_job_id = sorted_list[0][0]
-                small_job_time = sorted_list[0][1]
-                if job.job_end_time > small_job_time:
-                    del(tail_list[small_job_id])
-                    tail_list[job_id] = job.job_end_time
+            tail_list.append(response_time)
 
             system_avg_performance_ratio.append(response_ratio)
 
@@ -1504,27 +1510,29 @@ class FpgaSimulator(object):
             total_size += job.real_in_buf_size
 
 
-        for tail_id, time in tail_list.items():
-            tail_response_time += time
-
-        #avg_trans_time /= n
-        tail_response_time *= 1000000
-        tail_response_time /= tail_num
 
         trans_ratio /= total_size
+        tail_list = np.array(tail_list)
+        for p in tail_percentile:
+            num = int(p/100* len(tail_list)+0.5)
+            index = tail_list.argsort()[:num][-1]
+            tail_response_time.append(tail_list[index])
+
 
         self.sap = np.mean(system_avg_performance_ratio)  #aveg ratio of theory exe /total completion time
         self.snp = np.std(system_avg_performance_ratio, ddof=0)
 
         avg_response_time = np.mean(system_avg_response_time) #avg completion time
 
-        print "[Avg Completion Time]:               %.0f micro_secs" %(avg_response_time/1000)
-        print "[Tail Completion Time]:              %.0f micro_secs" %(tail_response_time/1000)
+        print "[Avg Completion Time]:                               %.0f    milli_secs" %(avg_response_time*1000)
+        #print "[90-99% Percentile Completion Time]:                 %.0f milli_secs" %(tail_response_time*1000)
+        print "[90-99% Percentile Completion Time]:                         milli_secs"
+        print [t*1000 for t in tail_response_time]
         print ""
 
-        print "[System Avg Performance]:            %.5f percentage" % (100*self.sap)
-        print "[System Norm Performance(Fairness)]  %.5f " % self.snp
-        print "[Data Locality]:                     %.0f percentage " % ((1- trans_ratio)*100)
+        print "[System Avg Performance(Response Delay)]:        %.5f percentage" % (100*self.sap)
+        print "[System Norm Performance(Fairness)]              %.5f " % self.snp
+        print "[Data Locality]:                                 %.0f percentage " % ((1- trans_ratio)*100)
 
         #self.snp = self.snp**(1.0/n)
         #self.snp /= n
@@ -1554,7 +1562,8 @@ class FpgaSimulator(object):
             #print i
             #i += 1
             self.current_time = sorted(self.event_sequence.iterkeys())[0]
-            self.current_event_id = self.event_sequence[self.current_time][0]#since multiple events may happen at a certain time, here we use dicts of lists to represent multimaps in C++
+            #since multiple events may happen at a certain time, here we use dicts of lists to represent multimaps in C++
+            self.current_event_id = self.event_sequence[self.current_time][0]
             self.current_job_id = self.event_list[self.current_event_id].job_id
 
             #print 'current time is %r' %self.current_time

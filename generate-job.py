@@ -28,6 +28,7 @@ class JobInitiator(object):
         except OSError:
             pass
         self.target = open("sim_data/"+node+"-"+pattern+"-alpha-"+str(alpha)+"-interval-"+str(mean_interval)+".txt",'a')
+        print "job event written to 'sim_data/"+node+"-"+pattern+"-alpha-"+str(alpha)+"-interval-"+str(mean_interval)+".txt'\n"
 
     def generate_job(self, job_num):
 
@@ -36,12 +37,14 @@ class JobInitiator(object):
 
         if self.pattern == "Exp" or self.pattern == "Log":
             job_size = numpy.random.exponential(self.alpha, job_num)
+            job_size = [self.alpha for i in range(job_num)]
             arrival_time = 0
             for i in job_list:
                 acc_name = random.sample(self.acc_type_list,1)[0]
                 in_buf_size = job_size[i] * 256  #4K bytes
-                job_param[i] = (acc_name, in_buf_size, arrival_time)
                 arrival_time += numpy.random.exponential(self.mean_interval)
+
+                job_param[i] = (acc_name, in_buf_size, arrival_time)
 
         else:
             print "Wrong Distribution Pattern. Pattern should be 'Exp' or 'Log\n"
