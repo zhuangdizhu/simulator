@@ -1,24 +1,26 @@
 #!/bin/bash
 usage() {
-    echo "Usage:    ./group-job.sh [Pattern] [JobNum] [NodeNum] [Ratio] [PCIE_BW] "
-    echo "Example:  ./group-job.sh Small 10 4 0.5 2000"
+    echo "Usage:    ./group-job.sh [Pattern] [Alpha] [NodeNum] [JobNum] [Interval]"
+    echo "Example:  ./group-job.sh Exp 400 10 10 4 1"
 }
 
+path=""
 if [[ "$#" -eq "5" ]]; then
     Pattern=$1
-    JobNum=$2
+    Alpha=$2
     NodeNum=$3
-    Ratio=$4
-    PCIeBW=$5
-    rm -rf job_data
-    mkdir job_data
+    JobNum=$4
+    Interval=$5
+
+    rm -rf jobInfo
+    mkdir jobInfo
 
     for((i=1;i<=$NodeNum; i=i+1))
     do
-        ./generate-job.py $JobNum $Pattern tian0$i $PCIeBW $Ratio
+        ./generate-job.py tian0$i $JobNum $Pattern $Alpha $Interval
     done
 
-    ./set_job.py $Pattern
+    ./load-job-to-mysql.py $Pattern $Alpha $Interval $NodeNum
 
 else
     usage

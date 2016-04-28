@@ -22,12 +22,13 @@ class JobInitiator(object):
 
         self.s0 = 1/256         #4KBytes
         self.max0 = 1024*10     #10GBytes
+        self.path = "../sim_data/"
 
         try:
-            os.remove("sim_data/"+node+"-"+pattern+"-alpha-"+str(alpha)+"-interval-"+str(mean_interval)+".txt")
+            os.remove(self.path+node+"-"+pattern+"-alpha-"+str(alpha)+"-interval-"+str(mean_interval)+".txt")
         except OSError:
             pass
-        self.target = open("sim_data/"+node+"-"+pattern+"-alpha-"+str(alpha)+"-interval-"+str(mean_interval)+".txt",'a')
+        self.target = open(self.path+node+"-"+pattern+"-alpha-"+str(alpha)+"-interval-"+str(mean_interval)+".txt",'a')
 
     def generate_job(self, job_num, node, pattern, alpha, mean_interval):
 
@@ -36,12 +37,12 @@ class JobInitiator(object):
 
         if self.pattern == "Exp" or self.pattern == "Log":
             job_size = numpy.random.exponential(self.alpha, job_num)
-            job_size = [self.alpha for i in range(job_num)]
+            #job_size = [self.alpha for i in range(job_num)]
             arrival_time = 0
             for i in job_list:
                 acc_name = random.sample(self.acc_type_list,1)[0]
                 in_buf_size = job_size[i] * 256  #4K bytes
-                arrival_time += numpy.random.exponential(self.mean_interval)
+                arrival_time = numpy.random.exponential(self.mean_interval)
 
                 job_param[i] = (acc_name, in_buf_size, arrival_time)
 
@@ -54,7 +55,7 @@ class JobInitiator(object):
             term = job_param[i]
             self.target.write("%s %s %s \n" %(str(term[0]), str(term[1]), str(term[2])))
 
-        print "job paramters created successfully. Please check 'sim_data/"+node+"-"+pattern+"-alpha-"+str(alpha)+"-interval-"+str(mean_interval)+".txt'\n"
+        print "job paramters created successfully. Please check '../sim_data/"+node+"-"+pattern+"-alpha-"+str(alpha)+"-interval-"+str(mean_interval)+".txt'\n"
 
 
 if __name__ == "__main__":

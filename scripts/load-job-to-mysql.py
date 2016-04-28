@@ -80,7 +80,7 @@ class JobInitiator(object):
 
 
 
-    def load_job(self, path, pattern, alpha, interval):
+    def load_job(self, path, pattern, alpha, interval, nodeNum):
         query = "INSERT INTO fpga_jobs(job_id, in_buf_size, out_buf_size, acc_id, arrival_time, execution_time, from_node)"\
                 "VALUES(%s, %s, %s, %s, %s, %s, %s)"
         cursor = self.conn.cursor()
@@ -88,37 +88,39 @@ class JobInitiator(object):
         node_index = 0
         for root, dirs, files in os.walk(path):
             for file_name in files:
-                if pattern in file_name and alpha in file_name and interval in file_name:
-                    print file_name
-                    node_index += 1
+                for i in range(1,int(nodeNum)+1):
+                    node = "tian0"+str(i)
+                    if node+"-"+pattern+"-alpha-"+str(float(alpha))+"-interval-"+str(float(interval))+".txt" in file_name:
+                        print file_name
+                        node_index += 1
 
-                    file_path = os.path.join(root, file_name)
-                    f = open(file_path, "r")
-                    lines=f.readlines()
-                    f.close()
+                        file_path = os.path.join(root, file_name)
+                        f = open(file_path, "r")
+                        lines=f.readlines()
+                        f.close()
 
-                    arrival_time = 0
-                    from_node = "tian0"+str(node_index)
-                    for line in lines:
-                        job_param = line.split()
+                        arrival_time = 0
+                        from_node = "tian0"+str(node_index)
+                        for line in lines:
+                            job_param = line.split()
 
-                        in_buf_size = float(job_param[1])*4/1024 #M Bytes
-                        out_buf_size = in_buf_size
+                            in_buf_size = float(job_param[1])*4/1024 #M Bytes
+                            out_buf_size = in_buf_size
 
-                        acc_id = self.acc_list[job_param[0]][0]
+                            acc_id = self.acc_list[job_param[0]][0]
 
-                        arrival_time +=float(job_param[2])        # seconds
+                            arrival_time +=float(job_param[2])        # seconds
 
-                        acc_bw = self.acc_list[job_param[0]][1]          # M bytes
+                            acc_bw = self.acc_list[job_param[0]][1]          # M bytes
 
-                        execution_time = in_buf_size/acc_bw    # seconds
+                            execution_time = in_buf_size/acc_bw    # seconds
 
-                        job_index += 1
-                        job_id = str(job_index)
+                            job_index += 1
+                            job_id = str(job_index)
 
-                        query_args=(job_id, str(in_buf_size), str(out_buf_size), acc_id, str(arrival_time), str(execution_time), from_node)
-                        cursor.execute(query,query_args)
-                        self.conn.commit()
+                            query_args=(job_id, str(in_buf_size), str(out_buf_size), acc_id, str(arrival_time), str(execution_time), from_node)
+                            cursor.execute(query,query_args)
+                            self.conn.commit()
             cursor.close()
 
 
@@ -127,18 +129,16 @@ class JobInitiator(object):
 
 
 if __name__ == "__main__":
-    if len(sys.argv) != 4:
-        sys.exit("Usage: "+sys.argv[0]+" <Distribution> <Alpha> <Interval>")
+    if len(sys.argv) != 5:
+        sys.exit("Usage: "+sys.argv[0]+" <Distribution> <Alpha> <Interval> <NodeNum>")
         sys.exit(1)
 
     pattern = sys.argv[1]
     alpha = sys.argv[2]
     interval = sys.argv[3]
+    nodeNum = sys.argv[4]
     job_initiator = JobInitiator()
     job_initiator.create_job_table()
-    job_initiator.load_job("sim_data", pattern, alpha, interval)
-
-
-
+    job_initiator.load_job("../sim_data", pattern, alpha, interval, nodeNum)
 
 

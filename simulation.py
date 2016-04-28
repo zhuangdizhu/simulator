@@ -119,11 +119,11 @@ class PowerNode(object):
 
 
 class FpgaSimulator(object):
-    def __init__(self, scheduling_algorithm, k1, k2, middleNum):
+    def __init__(self, scheduling_algorithm,k1,k2,Q):
 
         self.k1 = k1
         self.k2 = k2
-        self.middleNum = middleNum
+        self.Q = Q
         #self.wait_ratio = WaitRatio
         self.event_sequence = defaultdict(list)
         self.waiting_job_list=list()#the first element in the waiting_job_list must have wait the longest time
@@ -564,7 +564,7 @@ class FpgaSimulator(object):
                                     return return_job_id
                                 else:
                                     self.fpga_job_list[job_id].job_skipped += 1
-                                    less_optimal_jobs.append(job_id)
+                            less_optimal_jobs.append(job_id)
 
                 if len(less_optimal_jobs):
                     return_job_id =  less_optimal_jobs[0]
@@ -1049,7 +1049,7 @@ class FpgaSimulator(object):
             theory_job_execution_time = self.fpga_job_list[job_id].theory_job_execution_time
             self.sjf_job_list[job_id] = theory_job_execution_time
 
-        elif self.scheduling_algorithm == SchedulingAlgorithm.Queue or self.scheduling_algorithm == SchedulingAlgorithm.Double:
+        elif self.scheduling_algorithm == SchedulingAlgorithm.Queue or self.scheduling_algorithm == SchedulingAlgorithm.Double or self.scheduling_algorithm == SchedulingAlgorithm.Double1:
             queue_id = self.get_queue_id(job_id)
             self.priority_queue[queue_id].append(job_id)
 
@@ -1059,23 +1059,24 @@ class FpgaSimulator(object):
     def get_queue_id(self, job_id):
         k1 = self.k1 #MB
         k2 = self.k2
-        middleNum = self.middleNum
 
-        Q = 2
-        E = 1
-        K = 50
+        Q = self.Q
+
+        E = 2
+        K = 25
 
         job_size = self.fpga_job_list[job_id].real_in_buf_size
 
-        if E * (Q ** k1) > job_size:
-            queue_id = int(math.ceil(math.log(job_size/E,Q)))
+        if job_size < E * (Q ** (k1-1)) :
+            queue_id = int(math.ceil(math.log(job_size/E,Q))+1)
 
-        elif job_size >= E * (Q ** k2):
-            queue_id = k1 + middleNum + int(math.ceil(math.log( job_size/ (E*(Q**k2)) ) ))
+        elif job_size > E * (Q ** (k2-1)):
+            queue_id = min(int(math.ceil(math.log(job_size/E,Q))+1),K)
 
         else:
-            middleQueueSize = E*(Q**k2 - Q**k1)/middleNum
-            queue_id = int (k1 + math.ceil( (job_size - E*(Q**k1))/middleQueueSize) )
+            middleQueueSize = E*(Q**(k2-1)-Q**(k1-1))/(k2-k1)
+            extraSize = job_size - E*(Q**(k1-1))
+            queue_id = k1 + math.ceil(extraSize/middleQueueSize)
 
         return min(queue_id, K)
 
@@ -1083,6 +1084,8 @@ class FpgaSimulator(object):
         job_id = self.current_job_id
         #print"job[%i] arrival on %.5f " %(job_id, self.current_time)
         section_id = self.execute_scheduling()
+        #if job_id == 4:
+        #    print"job[%i] arrives secheduled on %r at %.5f " %(job_id, section_id, self.current_time)
 
         if section_id == None:
             self.add_job_to_waiting_queue(job_id)
@@ -1094,7 +1097,6 @@ class FpgaSimulator(object):
 
 
     def handle_job_begin(self, job_id):
-        #print"job[%i] begin on %.5f " %(job_id, self.current_time)
         self.remove_current_event()
         self.fpga_job_list[job_id].job_waiting_time = self.current_time - self.fpga_job_list[job_id].job_arrival_time
         c_job = self.fpga_job_list[job_id]
@@ -1103,6 +1105,8 @@ class FpgaSimulator(object):
         in_buf_size = c_job.job_in_buf_size
         job_node_ip = c_job.node_ip
         section_node_ip = self.fpga_section_list[section_id].node_ip
+        #if job_id == 4:
+        #    print"job[%i] from %r begin on %r at %.5f " %(job_id, job_node_ip, section_id, self.current_time)
 
         if job_node_ip != section_node_ip:
             job_node_id = self.node_list[job_node_ip].node_id
@@ -1247,6 +1251,8 @@ class FpgaSimulator(object):
 
         job_node_ip = self.fpga_job_list[job_id].node_ip
         job_node_id = self.node_list[job_node_ip].node_id
+        #if job_id == 4:
+        #    print"job[%i] from %r starts on %r at %.5f " %(job_id, job_node_ip, section_id, self.current_time)
 
         if (job_node_id != section_node_id):
             #self.fpga_job_list[job_id].job_total_transfer_time += (self.current_time - self.fpga_job_list[job_id].job_begin_time)
@@ -1284,6 +1290,9 @@ class FpgaSimulator(object):
 
         old_finish_time_list = self.update_finish_status(job_id, EventType.JOB_FINISH)#return a dict of job_id: old_finish_time
         self.update_associate_events(old_finish_time_list, EventType.JOB_FINISH)
+
+        #if job_id == 4:
+        #    print"job[%i] from %r finishes on %r at %.5f " %(job_id, job_node_ip, section_id, self.current_time)
 
         if (job_node_id != section_node_id):
             #begin data transfer
@@ -1330,6 +1339,8 @@ class FpgaSimulator(object):
         job_node_ip = self.fpga_job_list[job_id].node_ip
         job_node_id = self.node_list[job_node_ip].node_id
 
+        #if job_id == 4:
+        #    print"job[%i] from %r completes on %r at %.5f " %(job_id, job_node_ip, section_id, self.current_time)
         self.fpga_job_list[job_id].job_finished_buf_size += self.fpga_job_list[job_id].job_in_buf_size
 
         if (job_node_id != section_node_id):
@@ -1403,6 +1414,8 @@ class FpgaSimulator(object):
         #print"job[%i] end on %r " %(job_id, self.current_time)
         section_id = self.fpga_job_list[job_id].section_id
         self.fpga_section_list[section_id].if_idle = True
+        #if job_id == 4:
+        #    print"job[%i] ends on %r at %.5f " %(job_id, section_id, self.current_time)
 
         if len(self.waiting_job_list):
             new_job_id = self.execute_scheduling()
@@ -1421,8 +1434,8 @@ class FpgaSimulator(object):
         self.initiate_job_status()
         self.initiate_events()
 
-    def simulation_input(self):
-        print 'simulation is ready ...'
+    def simulation_input(self, scheduling_algorithm):
+        print 'simulation is ready, using algorithm %r ...' %scheduling_algorithm
         self.initiate_fpga_system()
         print 'intial event number is %r' % (len(self.event_list))
 
@@ -1439,6 +1452,7 @@ class FpgaSimulator(object):
 
     def simulation_output(self):
         n = len(self.fpga_job_list)
+        avg_job_size = 0
         avg_response_time = 0
         trans_ratio = 0
         total_size = 0
@@ -1467,6 +1481,24 @@ class FpgaSimulator(object):
             ##print "[job%r] [TRANS] takes %.2f milli_secs" %(job.job_id, time)
 
             response_time = job.job_end_time - job.job_arrival_time
+            if response_time <= 0:
+                print "Error: Response time %0.f\n" %response_time
+                print 'Error: [job%r]  on_node %r...' %(job.job_id, job.section_id)
+                response_time = 0
+
+                wait_time = job.job_waiting_time
+                response_time += wait_time
+                print "[job%r] [OPEN] takes: %.0f milli_secs" %(job.job_id, wait_time)
+
+                exe_time = job.job_complete_time - job.job_begin_time
+                response_time += exe_time
+                print "[job%r] [EXE] takes %.0f milli_secs" %(job.job_id, exe_time)
+
+                close_time = job.job_end_time - job.job_complete_time
+                response_time += close_time
+                print "[job%r] [CLOSE] takes %.0f milli_secs" %(job.job_id, close_time)
+                print "[job%r] [TOTAL] takes %.0f milli_secs" %(job.job_id, response_time)
+
 
             self.fpga_job_list[job_id].job_response_time = response_time
 
@@ -1484,8 +1516,8 @@ class FpgaSimulator(object):
             total_size += job.real_in_buf_size
 
 
-
         trans_ratio /= total_size
+        avg_job_size=total_size/n
         tail_list = np.array(tail_list)
         for p in tail_percentile:
             num = int(p/100* len(tail_list)+0.5)
@@ -1497,16 +1529,18 @@ class FpgaSimulator(object):
         self.snp = np.std(system_avg_performance_ratio, ddof=0)
 
         avg_response_time = np.mean(system_avg_response_time) #avg completion time
-        tail_response_time = [i*1000 for i in tail_response_time]
-        print "[Avg Completion Time]:                           %.0f    milli_secs" %(avg_response_time*1000)
-        print "[90 Percentile Completion Time]:                %.0f    milli_secs" %(tail_response_time[0])
+        tail_response_time = [round(i*1000) for i in tail_response_time]
+        print "[Avg_Job_Size]:                      MBytes     %.0f" %(avg_job_size)
+        print "[Avg_Completion_Time]:               milli_secs %.0f" %(avg_response_time*1000)
+        print "[90-99 Percentile_Completion_Time]:  milli_secs %s" %(" ".join(map(str,tail_response_time)))
+        #%(tail_response_time[0:len(tail_response_time)])
         #print "[90-99% Percentile Completion Time]:                         milli_secs"
         #print [t for t in tail_response_time]
         print ""
 
-        print "[System Avg Performance(Response Delay)]:        %.5f percentage" % (100*self.sap)
-        print "[System Norm Performance(Fairness)]              %.5f " % self.snp
-        print "[Data Locality]:                                 %.0f percentage " % ((1- trans_ratio)*100)
+        print "[System_Avg_Performance (Response Delay)]: percentage %.5f" % (100*self.sap)
+        print "[System_Norm_Performance (Fairness)]                  %.5f" % self.snp
+        print "[Data_Locality]:                           percentage %.0f" % ((1- trans_ratio)*100)
 
         #self.snp = self.snp**(1.0/n)
         #self.snp /= n
@@ -1541,7 +1575,6 @@ class FpgaSimulator(object):
             self.current_job_id = self.event_list[self.current_event_id].job_id
 
             #print 'current time is %r' %self.current_time
-            #print 'job_id =%r' %self.current_job_id
             #print 'current_event_id = %r' %self.current_event_id
             self.current_event_type = self.event_list[self.current_event_id].event_type#get the earliest-happened event from event_sequence
             #print 'current_event_type = %r' %self.current_event_type
@@ -1564,8 +1597,8 @@ class FpgaSimulator(object):
                 pass
 
 if __name__ == "__main__":
-    if len(sys.argv) != 5:
-        sys.exit('Usage: simulation.py SJF/FIFO/Choosy(1)/Queue/Double(1) K1 K2 MidleNum')
+    if len(sys.argv) < 5:
+        sys.exit('Usage: simulation.py SJF/FIFO/Choosy(1)/Queue/Double(1) K1 K2 Q')
         sys.exit(1)
 
     if sys.argv[1] == "SJF":
@@ -1595,11 +1628,9 @@ if __name__ == "__main__":
 
     k1 = int(sys.argv[2])
     k2 = int(sys.argv[3])
+    Q = float(sys.argv[4])
 
-    middleNum = int(sys.argv[3])
-    #WaitRatio = float(sys.argv[4])
-
-    my_fpga_simulator = FpgaSimulator(scheduling_algorithm, k1, k2, middleNum)
-    my_fpga_simulator.simulation_input()
+    my_fpga_simulator = FpgaSimulator(scheduling_algorithm, k1, k2, Q)
+    my_fpga_simulator.simulation_input(scheduling_algorithm)
     my_fpga_simulator.simulation_start()
     my_fpga_simulator.simulation_output()
