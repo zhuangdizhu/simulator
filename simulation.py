@@ -61,7 +61,8 @@ class FpgaJob(object):
         self.section_id = 0
 
         self.job_configuration_time = 0.0
-        self.job_arrival_time = job_arrival_time
+        #self.job_arrival_time = job_arrival_time
+        self.job_arrival_time = abs(job_arrival_time+random.uniform(-0.1,0.1))
         self.job_begin_time = 0
         self.job_start_time = 0
         self.job_finish_time = 0
@@ -574,7 +575,7 @@ class FpgaSimulator(object):
 
 
     def if_wait_long_time(self, job_id):
-        weight = 0.1
+        weight = 0.8
         skipped = 1
         job_node_ip = self.fpga_job_list[job_id].node_ip
         job_size = self.fpga_job_list[job_id].real_in_buf_size
@@ -585,7 +586,8 @@ class FpgaSimulator(object):
         job_waiting_time = self.current_time - self.fpga_job_list[job_id].job_arrival_time
 
         #if job_waiting_time > w * job_execution_time:
-        if job_waiting_time > job_trans_time * weight or self.fpga_job_list[job_id].job_skipped >= skipped:
+        #if job_waiting_time > job_trans_time * weight or self.fpga_job_list[job_id].job_skipped >= skipped:
+        if job_waiting_time > job_execution_time * weight or self.fpga_job_list[job_id].job_skipped >= skipped:
             return True
 
         #if self.fpga_job_list[job_id].job_skipped >= 1:
@@ -1460,6 +1462,7 @@ class FpgaSimulator(object):
         tail_percentile = [i for i in range (90,100)]
         tail_list =  list()
         system_avg_performance_ratio = list()
+        system_avg_wait_time = list()
         system_avg_response_time = list()
         for job_id, job in self.fpga_job_list.items():
 
@@ -1481,6 +1484,9 @@ class FpgaSimulator(object):
             ##print "[job%r] [TRANS] takes %.2f milli_secs" %(job.job_id, time)
 
             response_time = job.job_end_time - job.job_arrival_time
+            wait_time = job.job_begin_time - job.job_arrival_time
+            #print wait_time
+            system_avg_wait_time.append(wait_time)
             if response_time <= 0:
                 print "Error: Response time %0.f\n" %response_time
                 print 'Error: [job%r]  on_node %r...' %(job.job_id, job.section_id)
@@ -1527,12 +1533,14 @@ class FpgaSimulator(object):
 
         self.sap = np.mean(system_avg_performance_ratio)  #aveg ratio of theory exe /total completion time
         self.snp = np.std(system_avg_performance_ratio, ddof=0)
+        avg_wait_time = np.mean(system_avg_wait_time)
 
         avg_response_time = np.mean(system_avg_response_time) #avg completion time
         tail_response_time = [round(i*1000) for i in tail_response_time]
         print "[Avg_Job_Size]:                      MBytes     %.0f" %(avg_job_size)
         print "[Avg_Completion_Time]:               milli_secs %.0f" %(avg_response_time*1000)
         print "[90-99 Percentile_Completion_Time]:  milli_secs %s" %(" ".join(map(str,tail_response_time)))
+        print "[Avg_Wait_Time]:                     milli_secs %.0f" %(avg_wait_time*1000)
         #%(tail_response_time[0:len(tail_response_time)])
         #print "[90-99% Percentile Completion Time]:                         milli_secs"
         #print [t for t in tail_response_time]

@@ -13,13 +13,14 @@
 
 import os
 params = list()#mean: (interval, k1, k2, q)
-#params.append((100, 0.125, 1, 21, 1.41))
-#params.append((400, 0.5, 1, 21, 1.31))
-#params.append((1000,1.25,1, 21, 1.48))
-params.append((100, 0.5, 1, 20, 1.31))
+#params.append((100, 0.067, 9, 12, 1.65))
+#params.append((400, 0.5, 1, 21, 1.41))
+#params.append((1000,2,1, 21, 1.47))
+params.append((100, 0.2, 1, 20, 1.32))
 params.append((400, 0.5, 1, 21, 1.41))
-params.append((1000,0.5, 1, 10, 1.97))
+params.append((1000,0.8,12, 15, 1.96))
 
+#algorithms = ['Choosy1', 'Double1']
 algorithms = ['FIFO','SJF','Queue','Choosy','Double']
 pattern = "Exp"
 fpga_node_num = 5

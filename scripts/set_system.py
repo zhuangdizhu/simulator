@@ -20,7 +20,7 @@ class SystemInitiator(object):
         self.fpga_node_num = fpga_node_num
         self.each_section_num = 4
         self.acc_type_list[0] = ('1','acc0','EC','1200','1')
-        self.acc_type_list[1] = ('2','acc1','AES','1200','1')
+        self.acc_type_list[1] = ('2','acc1','AES','1700','1')
         self.acc_type_list[2] = ('3','acc2','FFT','1200','1')
         self.acc_type_list[3] = ('4','acc3','DTW','1200','1')
         self.acc_type_list[4] = ('5','acc4','SHA','150','0')

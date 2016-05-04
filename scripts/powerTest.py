@@ -12,16 +12,18 @@
 #Usage: ./load-job-to-mysql.py <Distribution> <Alpha> <Interval> <NodeNum>
 
 import os
-params = list()#mean: (interval, k1, k2, q)
+params = list()#alpha: (interval, k1, k2, q)
 #params.append((100, 0.125, 1, 21, 1.41))
 #params.append((400, 0.5, 1, 21, 1.31))
 #params.append((1000,1.25,1, 21, 1.48))
-params.append((100, 0.5, 1, 20, 1.31))
-params.append((400, 0.5, 1, 21, 1.41))
-params.append((1000,0.5, 1, 10, 1.97))
+params.append((0.1, 0.5, 1, 24, 1.4))
+params.append((0.2, 0.5, 9, 24, 1.414))
+params.append((0.3, 0.5, 15, 24, 1.414))
+params.append((0.4, 0.5, 1, 2, 1.414))
+params.append((0.5, 0.5, 1, 2, 1.414))
 
 algorithms = ['FIFO','SJF','Queue','Choosy','Double']
-pattern = "Exp"
+pattern = "Power"
 fpga_node_num = 5
 nodeNum = 10
 jobNum = 50

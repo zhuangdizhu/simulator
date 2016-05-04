@@ -85,10 +85,12 @@ class JobInitiator(object):
                 "VALUES(%s, %s, %s, %s, %s, %s, %s)"
         cursor = self.conn.cursor()
         job_index = 0
+        node_index = 3
         node_index = 0
         for root, dirs, files in os.walk(path):
             for file_name in files:
                 for i in range(1,int(nodeNum)+1):
+                #for i in range(4,int(nodeNum)+4):
                     node = "tian0"+str(i)
                     if node+"-"+pattern+"-alpha-"+str(float(alpha))+"-interval-"+str(float(interval))+".txt" in file_name:
                         print file_name

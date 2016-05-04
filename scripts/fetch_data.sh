@@ -13,7 +13,7 @@ if [[ "$#" -eq "2" ]]; then
     t_file="../logInfo/fetched-sim-${pattern}-${mean}.csv"
     s_dir="../logInfo"
 
-    s_file=`ls $s_dir|grep simlog |grep $pattern |grep $mean|grep log`
+    s_file=`ls $s_dir|grep simlog |grep $pattern |grep ${mean}.log`
     echo $s_file
 
     avgFCT=`grep "Avg_Completion_Time" $s_dir/${s_file} | awk '{print $3}'`
